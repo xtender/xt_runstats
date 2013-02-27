@@ -5,11 +5,11 @@ as
     -- 1. for own session:
       begin
         xt_runstats.init();
-        [some_code_1] 
+        [some_code_1]
         xt_runstats.snap();
         [some_code_2]
         xt_runstats.snap();
-        ... 
+        ...
         [some_code_N]
         xt_runstats.snap();
         -- result output:
@@ -34,13 +34,13 @@ as
     -- 5. Print latches which differ by 30% or more and stats differ by 15% or more:
       xt_runstats.print( p_lat_diff_pct=>30, p_sta_diff_pct => 15);
     */
-   
-   /** 
+
+   /**
     * Initialization with params setting
     * @param p_sid        Session sid for statistics gathering.      By default own session.
     * @param p_latches    Enable gathering latches gets from v$latch. Default = true.
     * @param p_stats      Enable statistics snapping. Default = true.
-    */ 
+    */
    procedure init (
                     p_sid     in number :=userenv('SID')
                    ,p_latches in boolean:=true
@@ -50,7 +50,7 @@ as
     * Snapping stats after next run test.
     */
    procedure snap;
-   
+
    /**
     * Print results.
     * @param p_latches_mask   Mask for filtering latches by name
@@ -58,8 +58,8 @@ as
     * @param p_lat_diff_pct   Print only latches with difference of gets between runs more or equal than specified percentage
     * @param p_sta_diff_pct   Print only stats with difference between runs more or equal than specified percentage
     */
-   procedure print( p_latches_mask in varchar2 default '%'
-                   ,p_stats_mask   in varchar2 default '%'
+   procedure print( p_latches_mask in varchar2 default '.'
+                   ,p_stats_mask   in varchar2 default '.'
                    ,p_lat_diff_pct in number   default 5
                    ,p_sta_diff_pct in number   default 5
                   );
@@ -76,7 +76,7 @@ as
         and b.sid        = p_sid
       order by a.statistic#;
 
-   cursor c_latches is   
+   cursor c_latches is
       select l.latch#,l.name, l.gets value
       from v$latch l
       order by l.latch#;
@@ -96,11 +96,11 @@ as
    g_runs_count int:=0;
    g_runs       t_runs;
    g_starts     sys.ku$_objnumset;
-   
+
    g_latches    boolean;
    g_stats      boolean;
    /* end declarations */
-   
+
    /* procedures: */
    procedure init (
                     p_sid     in number :=userenv('SID')
@@ -117,7 +117,7 @@ as
       end if;
       if g_starts is not null then
          g_starts.delete;
-      else 
+      else
          g_starts:=sys.ku$_objnumset();
       end if;
       -- save:
@@ -127,7 +127,7 @@ as
          fetch c_stats bulk collect into g_runs(g_runs_count).stats;
          close c_stats;
       end if;
-      
+
       if g_latches then
          open c_latches;
          fetch c_latches bulk collect into g_runs(g_runs_count).latches;
@@ -148,7 +148,7 @@ as
          fetch c_stats bulk collect into g_runs(g_runs_count).stats;
          close c_stats;
       end if;
-      
+
       if g_latches then
          open c_latches;
          fetch c_latches bulk collect into g_runs(g_runs_count).latches;
@@ -157,9 +157,9 @@ as
 
       g_start :=dbms_utility.get_time;
    end;
-   
-   procedure print( p_latches_mask in varchar2 default '%'
-                   ,p_stats_mask   in varchar2 default '%'
+
+   procedure print( p_latches_mask in varchar2 default '.'
+                   ,p_stats_mask   in varchar2 default '.'
                    ,p_lat_diff_pct in number   default 5
                    ,p_sta_diff_pct in number   default 5
                   )
@@ -171,29 +171,48 @@ as
       c_name_len   constant number       :=40;
       c_val_mask   constant varchar2(30) :='9,999,999,999';
       c_delim      constant varchar2(3)  :=' | ';
-      c_tab_len   number;
+      c_tab_len    number:=80;
+
+      /* table border */
+      procedure hr is
+      begin
+        dbms_output.put_line(lpad('#',c_tab_len,'#'));
+      end;
+
       /* print_header */
       procedure print_header(p_str in varchar2) is
          v_head varchar2(32767);
       begin
          v_head := rpad( p_str,c_name_len+1 ,' ');
 
-         for i in 1..g_runs_count 
+         for i in 1..g_runs_count
          loop
             v_head:= v_head || c_delim
                             || rpad('Run # '||i,length(c_val_mask)+1,' ');
          end loop;
          c_tab_len := length(v_head);
-         dbms_output.put_line(lpad('#',c_tab_len,'#'));
+         hr();
          dbms_output.put_line( v_head );
-         dbms_output.put_line(lpad('#',c_tab_len,'#'));
+         hr();
       end;
+     
       /* format_name */
       function format_name(p_str in varchar2) return varchar2
       is
       begin
          return rpad( p_str, c_name_len, '.');
       end;
+      
+      /* abs delta percents */
+      function delta_pct(p1 number, p2 number) return number
+      is
+      begin
+        return abs( 
+                   (v_delta_old-v_delta_cur)
+                   /case v_delta_cur when 0 then 1 else v_delta_cur end
+                  );
+      end;
+      
       /* print_latches */
       procedure print_latches is
       begin
@@ -202,24 +221,20 @@ as
          loop
             v_changed:=false;
             v_str := format_name( g_runs(0).latches(i).name );
-            if upper(v_str) like upper(p_latches_mask)
+            if regexp_like(v_str,p_latches_mask)
             then-- start by mask:
                for j in 1..g_runs_count
                loop
                   v_delta_cur := g_runs( j ).latches(i).value
                                - g_runs(j-1).latches(i).value;
-                  if j>1 
-                     and abs( (v_delta_old-v_delta_cur)
-                             /case v_delta_cur when 0 then 1 else v_delta_cur end
-                            )
-                         >= 
-                         p_lat_diff_pct / 100
+                  if g_runs_count=1
+                     or (j>1 and p_lat_diff_pct/100 <= delta_pct(v_delta_old,v_delta_cur))
                   then
                      v_changed := true;
                   end if;
                   v_str :=   v_str
-                          || c_delim 
-                          || to_char( 
+                          || c_delim
+                          || to_char(
                                       v_delta_cur
                                      ,c_val_mask
                                     );
@@ -230,7 +245,7 @@ as
                end if;
              end if;--end masking
          end loop;
-         dbms_output.put_line(lpad('#',c_tab_len,'#'));
+         hr();
          dbms_output.put_line('- ');
       end;
 
@@ -242,24 +257,20 @@ as
          loop
             v_changed:=false;
             v_str := format_name( g_runs(0).stats(i).name);
-            if upper(v_str) like upper(p_stats_mask)
+            if regexp_like(v_str,p_stats_mask,'i')
             then-- start by mask:
                for j in 1..g_runs_count
                loop
-                  v_delta_cur := g_runs( j ).stats(i).value 
+                  v_delta_cur := g_runs( j ).stats(i).value
                                - g_runs(j-1).stats(i).value;
-                  if j>1 
-                     and abs( (v_delta_old-v_delta_cur)
-                             /case v_delta_cur when 0 then 1 else v_delta_cur end
-                            )
-                         >= 
-                         p_sta_diff_pct / 100
+                  if g_runs_count=1
+                     or (j>1 and p_sta_diff_pct/100 <= delta_pct(v_delta_old,v_delta_cur))
                   then
                      v_changed := true;
                   end if;
                   v_str :=   v_str
-                          || c_delim 
-                          || to_char( 
+                          || c_delim
+                          || to_char(
                                       v_delta_cur
                                      ,c_val_mask
                                     );
@@ -270,27 +281,27 @@ as
                end if;
              end if;--end masking
          end loop;
-         dbms_output.put_line(lpad('#',c_tab_len,'#'));
+         hr();
          dbms_output.put_line('- ');
       end print_stats;
    /* print: main body */
    begin
       dbms_output.put_line('################     Results:      ##################');
       --dbms_output.enable(1000000);
-      for i in 1..g_runs_count 
+      for i in 1..g_runs_count
       loop
          dbms_output.put_line
             ( 'Run #'||to_char(i,'909')||' ran in ' || g_starts(i) || ' hsecs ');
       end loop;
-      
+
       if g_stats then
          print_stats;
       end if;
-      
+
       if g_latches then
          print_latches;
       end if;
    end print;
-   
+
 end xt_runstats;
 /
