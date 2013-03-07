@@ -208,8 +208,8 @@ as
       is
       begin
         return abs( 
-                   (v_delta_old-v_delta_cur)
-                   /case v_delta_cur when 0 then 1 else v_delta_cur end
+                   (p2-p1)
+                   /case p2 when 0 then 1 else p2 end
                   );
       end;
       
