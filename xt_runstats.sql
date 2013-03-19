@@ -6,9 +6,9 @@ as
       begin
         xt_runstats.init();
         [some_code_1]
-        xt_runstats.snap();
+        xt_runstats.snap(); -- by default it will have header 'Run 1'
         [some_code_2]
-        xt_runstats.snap();
+        xt_runstats.snap('Test 2'); -- header = Test 2
         ...
         [some_code_N]
         xt_runstats.snap();
@@ -49,7 +49,9 @@ as
    /**
     * Snapping stats after next run test.
     */
-   procedure snap;
+   procedure snap (
+                    p_header  in varchar2:=null
+                  );
 
    /**
     * Print results.
@@ -96,6 +98,7 @@ as
    g_runs_count int:=0;
    g_runs       t_runs;
    g_starts     sys.ku$_objnumset;
+   g_headers    sys.ku$_vcnt;
 
    g_latches    boolean;
    g_stats      boolean;
@@ -112,6 +115,7 @@ as
       g_sid     := p_sid;
       g_latches := p_latches;
       g_stats   := p_stats;
+      g_headers := sys.ku$_vcnt();
       if g_runs is not null then
          g_runs.delete;
       end if;
@@ -136,10 +140,12 @@ as
       g_start := dbms_utility.get_time;
    end;
 
-   procedure snap
+   procedure snap( p_header  in varchar2:=null )
    is
    begin
       g_runs_count := g_runs_count + 1;
+      g_headers.extend;
+      g_headers(g_runs_count) := nvl(p_header,'Run #'||g_runs_count);
       g_starts.extend;
       g_starts(g_runs_count):=dbms_utility.get_time-g_start;
 
@@ -188,7 +194,7 @@ as
          for i in 1..g_runs_count
          loop
             v_head:= v_head || c_delim
-                            || rpad('Run # '||i,length(c_val_mask)+1,' ');
+                            || rpad(g_headers(i),length(c_val_mask)+1,' ');
          end loop;
          c_tab_len := length(v_head);
          hr();
